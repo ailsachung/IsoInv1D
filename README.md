@@ -34,11 +34,11 @@ A python model to invert isochrone observations in deep polar ice sheets
 
 AgeModel.py creates a set of text files containing numerical outputs and pdf files containing graphs.
 
-* a.txt, accumulation.pdf: Average accumulation rate along the radar line, as well as accumulation for each layer (as in Cavitte et al., TC, 2018).
+* a.txt, accumulation.pdf: temporally averaged ice-equivelent accumulation rate along the radar line, as well as accumulation for each layer in the .txt file (as in Cavitte et al., TC, 2018).
 * m.txt, m.pdf: Melting rate along the radar line.
 * pprime.txt: pprime.pdf: parameter along the radar line.
-* p.txt: p.pdf: parameter along the radar line.
-* resi_sd.txt: resi_sd.pdf: reliability index (residual standard deviation) along radar line
+* p.txt, p.pdf: parameter along the radar line.
+* resi_sd.txt, resi_sd.pdf: reliability index (residual standard deviation) along radar line
 * agebottom.txt: Various ages and vertical resolution at the bottom of the ice sheet along the radar line.
 * ageisochrones.txt: Average ages of isochrones as calculated by the model.
 * agehorizons.txt: Average ages of the non dated horizons as calculated by the model.
