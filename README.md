@@ -12,7 +12,7 @@ A python model to invert isochrone observations in deep polar ice sheets
 
 * To run a single radar line (in terminal):
 
-	`python age_model.py single_radar_line_directory/`
+	`python age_model.py single_radar_line_directory`
 
 * To run a set of radar lines (in terminal):
 
