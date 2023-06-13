@@ -11,6 +11,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize
 from matplotlib.colors import LogNorm
+from scipy.ndimage.filters import gaussian_filter
 import sys
 import cartopy.crs as ccrs
 import yaml
@@ -92,6 +93,8 @@ class Maps(object):
                 self.resi_sd_array = np.loadtxt(directory+'/resi_sd.txt')
                 self.res_max = np.loadtxt(directory+'/res_max.txt')
                 self.lines = [RLlabel] * len(self.botage_array)
+                if 'BIC' in self.list_maps:
+                    self.no_inv_array = np.loadtxt(directory+'/resi_sd_no.txt')
 
             else:
                 if self.place == 'Ridge B':
@@ -105,6 +108,8 @@ class Maps(object):
                 self.resi_sd_array=np.concatenate((self.resi_sd_array,np.loadtxt(directory+'/resi_sd.txt')))
                 self.res_max=np.concatenate((self.res_max,np.loadtxt(directory+'/res_max.txt')))
                 self.lines = self.lines + [RLlabel] * len(self.botage_array)
+                if 'BIC' in self.list_maps:
+                    self.no_inv_array = np.concatenate((self.no_inv_array,np.loadtxt(directory+'/resi_sd_no.txt')))
 
             self.lakes = pd.read_csv(self.RLDir+'../bedmap2/lakes.txt',header=0, sep='\t')
 
@@ -151,6 +156,9 @@ class Maps(object):
             # get surface elevation array
             extent = np.array(self.cart_map1.get_extent())
             x_lim_surf, y_lim_surf, self.xy_surface, self.xx_surf, self.yy_surf = self.bedmachine(self.surf_name, extent, False)
+            # smooth surface map
+            self.xy_surface = gaussian_filter(self.xy_surface, 0.7)
+
 
             self.first_map = False
             # plot bedrock elevation heatmap and colorbar
@@ -171,7 +179,6 @@ class Maps(object):
 
         # for paper: remove one s
         if MapLabel[0:11] !='radar-liness':
-            # cb = plt.colorbar(self.scatter, ax=self.cart_map1,  orientation='vertical', shrink =0.6, pad=0.12)
             cb = plt.colorbar(self.scatter, ax=self.cart_map1,  orientation='horizontal', shrink =0.7, pad=0.07)
             cb.set_label(self.cb_label)
             if self.cb_ticks != 'auto':
@@ -203,7 +210,7 @@ class Maps(object):
         # radar line longitudes and latitudes
         self.lons, self.lats = np.transpose(self.botage_array[resi_sd<self.reliability][:,:2])
         # get data for each graph from arrays
-        botage, minbotage, age100, age150, age200, age250,res1, res12, res15 =  np.transpose(self.botage_array[resi_sd<self.reliability][:,4:13])
+        botage, minbotage, maxbotage, age100, age150, age200, age250,res1, res12, res15 =  np.transpose(self.botage_array[resi_sd<self.reliability][:,4:14])
         HAB08, HAB1, HAB12, HAB15,bed_real = np.transpose(self.botage_array[resi_sd<self.reliability][:,14:19])
         pp_lons, pp_lats, not_used, p, sigma_p = np.transpose(self.p_array[resi_sd<self.reliability][:,0:5])
         m_lons, m_lats, not_used, melting, sigma_melting = np.transpose(self.m_array[resi_sd<self.reliability][:,0:5])
@@ -211,7 +218,6 @@ class Maps(object):
         accu_lons, accu_lats, accu_dist, accu, accu_sigma = np.transpose(self.accu_array[resi_sd<self.reliability][:,:5])
         max_lons, max_lats, max_dist,max_depth, max_age = np.transpose(self.res_max[resi_sd<self.reliability])
 
-        # for paper: save file with data for all map figures
         if not self.saved:
             stagnant[stagnant<0] = 0
             output = np.transpose(np.vstack((self.lons, self.lats, melting, stagnant, accu, p, botage, res12, ok_res)))
@@ -249,10 +255,22 @@ class Maps(object):
                 self.scatter = self.cart_map1.scatter(self.botage_array[:,0], self.botage_array[:,1], c=resi_sd, norm=norm, cmap='PiYG_r', marker='o', lw=0., s=self.dotsize,transform=ccrs.PlateCarree())
                 self.cb_label = 'Reliablity index'
 
+            elif MapLabel=='residual-sd-no':
+                resi_sd_no = self.no_inv_array[:,3]               # reliablity no thk inversion
+                resi_sd_no = resi_sd_no - resi_sd
+                self.scatter = self.cart_map1.scatter(self.botage_array[:,0], self.botage_array[:,1], c=resi_sd_no, norm=norm, cmap='PiYG_r', marker='o', lw=0., s=self.dotsize,transform=ccrs.PlateCarree())
+                self.cb_label = 'Reliablity index'
+
+            elif MapLabel=='BIC':
+                BIC_no = self.no_inv_array[:,4]             # reliablity no thk inversion
+                BIC = self.resi_sd_array[:,4]               # reliablity
+                delta_BIC = BIC - BIC_no                    # -> invthk-no_invthk
+                print(np.nanmean(delta_BIC))
+                self.scatter = self.cart_map1.scatter(self.botage_array[:,0], self.botage_array[:,1], c=delta_BIC, marker='o',cmap='cool', lw=0., norm = norm,  s=self.dotsize,transform=ccrs.PlateCarree())
+                self.cb_label = '$\Delta C_{ij}$ '
+
 
             elif MapLabel=='bottom-age':
-                print('max age', np.average(botage[~np.isnan(botage)]/1e6))
-                print('sd max age', np.std(botage[~np.isnan(botage)]/1e6))
                 norm = LogNorm(vmin=self.limits[MapLabel]['vmin'],vmax=self.limits[MapLabel]['vmax'])
                 self.scatter = self.cart_map1.scatter(self.lons, self.lats, c=botage/1e6, marker='o', lw=0., norm = norm,  s=self.dotsize,transform=ccrs.PlateCarree())
                 self.cb_label = 'Maximum age (Ma)'
@@ -262,6 +280,11 @@ class Maps(object):
                 # norm = LogNorm(vmin=self.limits[MapLabel]['vmin'],vmax=self.limits[MapLabel]['vmax'])
                 self.scatter = self.cart_map1.scatter(self.lons, self.lats, c=max_depth, marker='o', lw=0., norm = norm,  s=self.dotsize,transform=ccrs.PlateCarree())
                 self.cb_label = 'Depth of bottom age (m)'
+
+            elif MapLabel=='bottom-age-sigma':
+                botage_sigma = (maxbotage-minbotage)/(2*1e6)
+                self.scatter = self.cart_map1.scatter(self.lons, self.lats, c=botage_sigma, marker='o', lw=0., norm = norm,  s=self.dotsize,transform=ccrs.PlateCarree())
+                self.cb_label = 'bottom age sigma (Ma)'
 
             # not for paper
             elif MapLabel=='min-bottom-age':
@@ -301,12 +324,13 @@ class Maps(object):
 
             elif MapLabel=='age_density-1.2Myr':
                 self.scatter = self.cart_map1.scatter(self.lons, self.lats, c=res12/1e3, marker='o', cmap='viridis_r', lw=0., norm = norm,  s=self.dotsize,transform=ccrs.PlateCarree())
+                # self.scatter = self.cart_map1.scatter(self.lons, self.lats, c=res12/1e3, marker='o', cmap='magma', lw=0., norm = norm,  s=self.dotsize,transform=ccrs.PlateCarree())
                 # norm2 = Normalize(vmin=4.,vmax=9.)            # NP colour scheme
-                # self.scatter = self.cart_map1.scatter(self.lons[res12<9000], self.lats[res12<9000], c=res12[res12<9000]/1e3, cmap='magma',marker='o', lw=0., norm = norm2,  s=self.dotsize,transform=ccrs.PlateCarree())
+                # self.scatter = self.cart_map1.scatter(self.lons[res12<9000], self.lats[res12<9000], c=res12[res12<9000]/1e3, cmap='magma',marker='o', lw=0., norm = norm,  s=self.dotsize,transform=ccrs.PlateCarree())
                 self.cb_label = 'Age Density at 1.2 Ma (kyr m$^{-1}$)'
 
             elif MapLabel=='age_density-1.5Myr':
-                self.scatter = self.cart_map1.scatter(self.lons, self.lats, c=res15/1e3, marker='o', lw=0., norm = norm,  s=self.dotsize,transform=ccrs.PlateCarree())
+                self.scatter = self.cart_map1.scatter(self.lons, self.lats, c=res15/1e3, marker='o', lw=0., norm = norm, cmap='magma', s=self.dotsize,transform=ccrs.PlateCarree())
                 self.cb_label = 'Age Density at 1.5 Ma (kyr m$^{-1}$)'
 
             elif MapLabel=='resolution-1Myr':
@@ -318,8 +342,8 @@ class Maps(object):
                 self.cb_label = 'Resolution at 1.2 Ma (m kyr$^{-1}$)'
 
             elif MapLabel=='resolution-1.5Myr':
-                self.scatter = self.cart_map1.scatter(self.lons, self.lats, c=1e3/res15, marker='o', lw=0., norm = norm,  s=self.dotsize,transform=ccrs.PlateCarree())
-                self.cb_label = 'Resolution at 1.5 Ma (m kyr$^{-1}$)'
+                self.scatter = self.cart_map1.scatter(self.lons, self.lats, c=1/res15*100, marker='o', lw=0., norm = norm,cmap='magma', s=self.dotsize,transform=ccrs.PlateCarree())
+                self.cb_label = 'Resolution at 1.5 Ma (cm yr$^{-1}$)'
 
             elif MapLabel=='Height-Above-Bed-0.8Myr':
                 self.scatter = self.cart_map1.scatter(self.lons, self.lats, c=HAB08, norm=norm, marker='o', lw=0., s=self.dotsize,transform=ccrs.PlateCarree())
@@ -352,7 +376,7 @@ class Maps(object):
 
             elif MapLabel=='stagnant-basal':
                 self.scatter = self.cart_map1.scatter(self.lons, self.lats, c=diff, norm=norm,  marker='o', lw=0., s=self.dotsize,transform=ccrs.PlateCarree(),cmap='coolwarm')
-                self.cb_label = 'Stagnant ice depth - basal unit depth (m)'
+                self.cb_label = 'Top of modelled stagnant ice - top of observed basal unit (m)'
                 # save file
                 output = np.transpose(np.vstack((self.lons, self.lats,diff)))
                 names = ['lon', 'lat', 'stag_depth-basal_depth']
@@ -366,7 +390,7 @@ class Maps(object):
             elif MapLabel=='stagnant-depth':
                 stag_depth = inv_depth
                 self.scatter = self.cart_map1.scatter(self.lons, self.lats, c=stag_depth,  norm=norm,  marker='o', lw=0., s=self.dotsize,transform=ccrs.PlateCarree())
-                self.cb_label = 'Top of stagnant ice depth (m)'
+                self.cb_label = 'Top of modelled stagnant ice depth(m)'
                 #save file
                 output = np.transpose(np.vstack((self.lons, self.lats,basal,stag_depth,)))
                 names = ['lon', 'lat', 'basal_unit_depth(m)', 'stagnant_ice_depth(m)']
@@ -379,14 +403,15 @@ class Maps(object):
 
             elif MapLabel=='basal-depth':
                 self.scatter = self.cart_map1.scatter(self.lons, self.lats, c=basal,  norm=norm,  marker='o', lw=0., s=self.dotsize,transform=ccrs.PlateCarree())
-                self.cb_label = 'Top of basal unit depth (m)'
+                self.cb_label = 'Top of observed basal unit depth (m)'
 
 
             elif MapLabel=='melting':
-                self.scatter = self.cart_map1.scatter(m_lons[melting>0], m_lats[melting>0], c=melting[melting>0]*1e3, marker='o', lw=0., s=self.dotsize,cmap = 'Reds', transform=ccrs.PlateCarree())
+                self.scatter = self.cart_map1.scatter(m_lons[melting>0], m_lats[melting>0], c=melting[melting>0]*1e3, marker='o', lw=0., norm=Normalize(vmin=0.0,vmax=3.0),s=self.dotsize,cmap = 'Reds', transform=ccrs.PlateCarree())
                 no_melt = self.cart_map1.scatter(m_lons[melting<=0], m_lats[melting<=0], c='blue', marker='o', lw=0., s=self.dotsize, label = "No melting", transform=ccrs.PlateCarree())
                 lgnd = plt.legend(loc='lower left')
                 lgnd.legendHandles[0]._sizes = [15]
+
                 self.cb_label = '$\overline{m}$ (mm yr$^{-1}$)'
 
             elif MapLabel=='melting-sigma':
@@ -399,11 +424,12 @@ class Maps(object):
 
             elif MapLabel=='melting-stagnant':
                 lakes = self.cart_map1.scatter(x=self.lakes['Lon'], y=self.lakes['Lat'], color = 'darkviolet', marker='o', s=self.lakes['Length_m']/20*0.35, lw=.0, transform=ccrs.PlateCarree(), alpha=0.75)
-                melt = self.cart_map1.scatter(m_lons[melting>0], m_lats[melting>0], c=melting[melting>0]*1e3, marker='o', lw=0., s=self.dotsize,cmap = 'Reds', norm = Normalize(vmin=0.,vmax=3.), transform=ccrs.PlateCarree())
+                melt = self.cart_map1.scatter(m_lons[melting>0], m_lats[melting>0], c=melting[melting>0]*1e3, marker='o', lw=0., s=self.dotsize,cmap = 'Reds', norm=Normalize(vmin=0.0,vmax=3.0), transform=ccrs.PlateCarree())
                 self.scatter = self.cart_map1.scatter(self.lons[stagnant>0], self.lats[stagnant>0], c=stagnant[stagnant>0], norm=norm,  cmap= 'Blues', marker='o', lw=0., s=self.dotsize,transform=ccrs.PlateCarree())
                 # removed for paper
                 # melt = self.cart_map1.scatter(m_lons[melting>0], m_lats[melting>0], c=melting[melting>0]*1e3, marker='o', lw=0., s=self.dotsize,cmap = 'Reds', norm = Normalize(vmin=0.,vmax=3.), transform=ccrs.PlateCarree())
-                # cb = plt.colorbar(melt, ax=self.cart_map1,  orientation='horizontal', shrink =0.7, pad=0.0)
+                # cb = plt.colorbar(melt, ax=self.cart_map1,  orientation='horizontal',shrink =0.7, pad=0.07)
+                # cb.ax.invert_xaxis()
                 # cb.set_label('$\overline{m}$ (mm a$^{-1}$)')
                 self.cb_label = 'Stagnant ice thickness (m)'
 
@@ -417,7 +443,6 @@ class Maps(object):
 
             elif MapLabel=='accu-steady':
                 # norm=Normalize()
-                print('accu', np.average(accu))
                 # Normalize(vmin=self.limits[MapLabel]['vmin'],vmax=self.limits[MapLabel]['vmax'])
                 self.cb_label = 'Steady accumulation (mm yr$^{-1}$)'
                 self.scatter = self.cart_map1.scatter(accu_lons, accu_lats, c=accu*1e3, marker='o', lw=0., norm = norm,  s=self.dotsize,transform=ccrs.PlateCarree())

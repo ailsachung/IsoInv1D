@@ -302,6 +302,8 @@ class RadarLine(object):
         self.tau = np.empty_like(self.age)
         self.m = np.empty_like(self.distance)
         self.resi_sd = np.empty_like(self.distance)
+        self.bic = np.empty_like(self.distance)
+        self.niso = np.empty_like(self.distance)
         self.sigma_a = np.zeros_like(self.distance)
         self.sigma_h = np.zeros_like(self.distance)
         self.sigma_p = np.zeros_like(self.distance)
@@ -612,7 +614,7 @@ class RadarLine(object):
         self.sigma_m[j] = np.sqrt(np.diag(c_model))[0]
         index = index+1
 
-        self.sigmabotage[j] = np.interp(self.thk[j]-60., self.depth[:, j], self.sigma_age[:, j])
+        self.sigmabotage[j] = np.interp(self.depth_max[j], self.depth[:, j], self.sigma_age[:, j])
         self.iso_modage_sigma[:, j] = np.interp(self.iso[:, j], self.depth[:, j], self.sigma_age[:, j])
 
         return
@@ -694,7 +696,7 @@ class RadarLine(object):
     def bot_age_save(self):
 
         output = np.vstack((self.LON, self.LAT, self.distance, self.thk, self.agebot,
-                            self.agebotmin, self.age100m, self.age150m, self.age200m,
+                            self.agebotmin, self.agebotmax, self.age100m, self.age150m, self.age200m,
                             self.age250m, self.age_density1Myr, self.age_density1dot2Myr,
                             self.age_density1dot5Myr, self.height0dot6Myr, self.height0dot8Myr,
                             self.height1Myr, self.height1dot2Myr, self.height1dot5Myr,
@@ -754,9 +756,9 @@ class RadarLine(object):
         with open(self.label+'p_prime.txt', 'w') as f:
             f.write('#LON\tLAT\tdistance(km)\tp\tp_prime\n')
             np.savetxt(f, np.transpose(output), delimiter="\t")
-        output = np.vstack((self.LON, self.LAT, self.distance, self.resi_sd))
+        output = np.vstack((self.LON, self.LAT, self.distance, self.resi_sd, self.bic, self.niso))
         with open(self.label+'resi_sd.txt', 'w') as f:
-            f.write('#LON\tLAT\tdistance(km)\tresi_sd\n')
+            f.write('#LON\tLAT\tdistance(km)\tresi_sd\tBIC\tN_iso\n')
             np.savetxt(f, np.transpose(output), delimiter="\t")
         diff = self.thk-self.basal
         output = np.vstack((self.LON, self.LAT, self.distance, self.stagnant, self.thk,  self.basal, diff))
@@ -768,17 +770,14 @@ class RadarLine(object):
             f.write('#LON\tLAT\tdistance(km)\tdepth (m)\tage (yrs)\n')
             np.savetxt(f, np.transpose(output), delimiter="\t")
         output = np.vstack((self.LON, self.LAT, self.distance, self.m, self.stagnant, self.agebot, self.age_density1dot2Myr, self.a, self.p, self.resi_sd))
-        # with open(self.label+'paper.txt', 'w') as f:
-        #     f.write('#LON\tLAT\tdistance(km)\tmelt_rate(mm/yr)\tstagnant_layer_thk(m)\tmaximum_age(yrs)\tage_density_1.2Ma\tsteady_accumulation(mm/yr)\tp\treliability_index\n')
-        #     np.savetxt(f, np.transpose(output), delimiter="\t")
 
         # matrices which can be optionally saved in order to replot model results
-        # np.savetxt(self.label+'sigma_thickness.txt', self.sigma_h, delimiter='\t')
-        # np.savetxt(self.label+'agesteady.txt', self.agesteady/1000., delimiter='\t')
-        # np.savetxt(self.label+'agematrix.txt', self.age/1000., delimiter='\t')
-        # np.savetxt(self.label+'x_dist.txt', self.dist, delimiter='\t')
-        # np.savetxt(self.label+'y_depth.txt', self.depth, delimiter='\t')
-        # np.savetxt(self.label+'sigma_age.txt', self.sigma_age/1000., delimiter='\t')
+        np.savetxt(self.label+'sigma_thickness.txt', self.sigma_h, delimiter='\t')
+        np.savetxt(self.label+'agesteady.txt', self.agesteady/1000., delimiter='\t')
+        np.savetxt(self.label+'agematrix.txt', self.age/1000., delimiter='\t')
+        np.savetxt(self.label+'x_dist.txt', self.dist, delimiter='\t')
+        np.savetxt(self.label+'y_depth.txt', self.depth, delimiter='\t')
+        np.savetxt(self.label+'sigma_age.txt', self.sigma_age/1000., delimiter='\t')
 
     # plot modelled parameters
     def model_display(self):
@@ -825,6 +824,8 @@ class RadarLine(object):
         cb.set_ticklabels(levels)
         cb.set_label('Modeled steady age (kyr)')
         x1, x2, y1, y2 = plt.axis()
+        if not self.invert_thk:
+            y2 =y2*1.05
         # show reliablity index
         plt.scatter(self.distance, np.ones(len(self.distance))*(y2), c=self.resi_sd, norm=Normalize(vmin=0., vmax=self.sigma_r), cmap='PiYG_r', marker='s', s=4, lw=0. )
         cb = plt.colorbar(orientation='horizontal', shrink =0.7, pad=0.16)
@@ -848,7 +849,7 @@ class RadarLine(object):
         plt.close(fig)
 
         # model
-        fig, plotmodel = plt.subplots()  #figsize=(8,4)
+        fig, plotmodel = plt.subplots(figsize=(8,4))  #figsize=(8,4)
         plt.plot(self.distance, self.thkreal, color='k', linewidth=2, label='bed')
         for i in range(self.nbiso):
             if i == 0:
@@ -897,6 +898,8 @@ class RadarLine(object):
         cb.set_label('Modeled age (kyr)')
         x1, x2, y1, y2 = plt.axis()
         # show reliability index
+        if not self.invert_thk:
+            y2 =y2*1.05
         plt.scatter(self.distance, np.ones(len(self.distance))*(y2), c=self.resi_sd, norm=Normalize(vmin=0., vmax=self.sigma_r), cmap='PiYG_r', marker='s', s=4, lw=0. )
         cb = plt.colorbar(orientation='horizontal', shrink =0.7, pad=0.16)
         cb.set_label('Reliability index')
@@ -1164,7 +1167,7 @@ class RadarLine(object):
         # vertical velocity profile
         accu_now = accu_drill[0]
         vv_plot, ax1 = plt.subplots()
-        vv =   -accu_now*omega_drill      #vertical velocity
+        vv = -accu_now*omega_drill      #vertical velocity
         ax1.plot(vv, depth_drill)
         ax1.plot(-accu_drill*omega_drill , depth_drill)
         ax1.set_xlabel('vertical velocity (m/yr)')
@@ -1217,25 +1220,31 @@ class RadarLine(object):
         self.init_arrays()
         self.data_display()
 
+
         # run model
         if self.opt_method == 'leastsq1D':
             print('Optimization by leastsq1D')
             for j in range(np.size(self.distance)):
                 print('index along the radar line: ', j)
+                bounds = [-np.inf, -np.inf], [np.inf, np.inf]
                 self.variables1D = np.array([self.a[j], self.p_prime[j]])
                 if self.invert_thk:
                     self.variables1D = np.append(self.variables1D, m.log(self.thk[j]))
+                    bounds = ([-np.inf, -np.inf, m.log(np.max(self.iso[~np.isnan(self.iso[:,j]),j]))], [np.inf, np.inf, np.inf])
                 if self.invert_s:
                     self.variables1D = np.append(self.variables1D, self.s[j])
                 # do least square fit to get variables and hessian matrix
-                leastsq_fit1D = least_squares(self.residuals1D, self.variables1D, bounds=([-np.inf, -np.inf, m.log(np.max(self.iso[~np.isnan(self.iso[:,j]),j]))], [np.inf, np.inf, np.inf]), args=(j,), method='trf')
+                leastsq_fit1D = least_squares(self.residuals1D, self.variables1D, bounds=bounds, args=(j,), method='trf')
                 self.variables1D = leastsq_fit1D.x
                 self.hess1D = np.linalg.inv(np.dot(np.transpose(leastsq_fit1D.jac), leastsq_fit1D.jac))
 
                 print(self.variables1D)
                 # calc residuals and save results
                 resi=self.residuals1D(self.variables1D, j)
-                self.resi_sd[j] = np.std(self.age_resi)
+                self.resi_sd[j] = m.sqrt(np.mean(self.age_resi**2))
+                self.niso[j] = np.sum(~np.isnan(self.iso[:,j]))
+                self.bic[j] = -2 * np.log(self.niso[j]*self.resi_sd[j]) + len(self.variables1D) * np.log(self.niso[j])
+
                 self.model1D_finish(j)
                 if not self.calc_sigma:
                     self.hess1D = np.zeros((np.size(self.variables1D), np.size(self.variables1D)))
