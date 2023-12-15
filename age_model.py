@@ -283,8 +283,8 @@ class RadarLine(object):
 
         # arrys used while running model
         self.a = self.a*np.ones(np.size(self.distance))         # accumulation
-        self.p_prime = m.log(self.p+1)*np.ones(np.size(self.distance))         # omega_D parameter
-        self.p = self.p*np.ones(np.size(self.distance))         # omega_D parameter
+        self.p_prime = m.log(self.p_prior+1)*np.ones(np.size(self.distance))         # omega_D parameter
+        self.p = self.p_prior*np.ones(np.size(self.distance))         # omega_D parameter
         self.s = self.s*np.ones(np.size(self.distance))         # omega parameter
         self.thkie = np.empty_like(self.distance)               # thickness ice extrapolated
         self.zetanodes = self.grid()                            # normalised elevation nodes
@@ -573,7 +573,7 @@ class RadarLine(object):
             self.variables1D[i] = self.variables1D[i]+epsilon[i]
             self.residuals1D(self.variables1D, j)
             model1 = self.model1D_1order(j)
-            self.variables1D[i] = self.variables1D[i]-epsilon[i]
+            self.variables1D[i] = self.variables1D[i]-2*epsilon[i]  # try 2 epsilon
             self.residuals1D(self.variables1D, j)
             model2 = self.model1D_1order(j)
             jacob[i] = (model1-model2)/2./epsilon[i]
@@ -616,6 +616,7 @@ class RadarLine(object):
 
         self.sigmabotage[j] = np.interp(self.depth_max[j], self.depth[:, j], self.sigma_age[:, j])
         self.iso_modage_sigma[:, j] = np.interp(self.iso[:, j], self.depth[:, j], self.sigma_age[:, j])
+
 
         return
 
@@ -704,7 +705,7 @@ class RadarLine(object):
 
         with open(self.label+'agebottom.txt', 'w') as f:
             f.write('#LON\tLAT\tdistance(km)\tinverted_thickness(m)\tbottom_age(yr-b1950)'
-                    '\tage-min(yr-b1950)'
+                    '\tage-min(yr-b1950)\tage-max(yr-b1950)'
                     '\tage100m\tage150m\tage200m\tage250\tage_density1Myr\tage_density1.2Myr\t'
                     'age_density1.5Myr\theight0.6Myr\theight0.8Myr\theight1Myr\theight1.2Myr\t'
                     'height1.5Myr'
@@ -765,9 +766,9 @@ class RadarLine(object):
         with open(self.label+'stagnant.txt', 'w') as f:
             f.write('#LON\tLAT\tdistance(km)\tstagnant_ice (m)\tinverted_thickness (m)\tbasal_unit (m)\tdifference (m)\n')
             np.savetxt(f, np.transpose(output), delimiter="\t")
-        output = np.vstack((self.LON, self.LAT, self.distance, self.depth_max,  self.agebot))
+        output = np.vstack((self.LON, self.LAT, self.distance, self.depth_max,  self.agebot, self.sigmabotage))
         with open(self.label+'res_max.txt', 'w') as f:
-            f.write('#LON\tLAT\tdistance(km)\tdepth (m)\tage (yrs)\n')
+            f.write('#LON\tLAT\tdistance(km)\tdepth (m)\tage (yrs)\tage sigma(kyr)\n')
             np.savetxt(f, np.transpose(output), delimiter="\t")
         output = np.vstack((self.LON, self.LAT, self.distance, self.m, self.stagnant, self.agebot, self.age_density1dot2Myr, self.a, self.p, self.resi_sd))
 
@@ -849,7 +850,7 @@ class RadarLine(object):
         plt.close(fig)
 
         # model
-        fig, plotmodel = plt.subplots(figsize=(8,4))  #figsize=(8,4)
+        fig, plotmodel = plt.subplots()
         plt.plot(self.distance, self.thkreal, color='k', linewidth=2, label='bed')
         for i in range(self.nbiso):
             if i == 0:
@@ -857,14 +858,14 @@ class RadarLine(object):
                          label='obs. isochrones')
             else:
                 plt.plot(self.distance, self.iso[i, :], color='w', linewidth=1)
-        # levels = np.arange(0, self.max_age, self.max_age/15)
-        # levels_color = np.arange(0, self.max_age, self.max_age/15)
+
         plt.contourf(self.dist, self.depth, self.age/1000., levels_color, cmap='jet')
 
+
         plt.fill_between(self.distance, self.thkreal, self.thk,
-            where=self.thk<self.thkreal, color='0.7',label='stagnant ice')
+            where=self.thk<self.thkreal, color='0.7',label='stagnant ice',interpolate=True)
         plt.fill_between(self.distance, self.thkreal, self.thk,
-            where=self.thk>self.thkreal, color='white', label='bedrock')
+            where=self.thk>self.thkreal, color='white', label='bedrock',interpolate=True)
         plt.plot(self.distance, inverted_depth, color='darkviolet',
             label='inverted depth', linewidth=1)
         if self.is_basal:
@@ -892,10 +893,11 @@ class RadarLine(object):
             frame = leg.get_frame()
             frame.set_facecolor('0.75')
 
+        # cb = plt.colorbar(location='bottom', pad=0.16)
         cb = plt.colorbar()
         cb.set_ticks(levels)
-        cb.set_ticklabels(levels)
-        cb.set_label('Modeled age (kyr)')
+        cb.set_ticklabels(np.asarray(levels, dtype = 'int'))
+        cb.set_label('Modelled age (kyr)')
         x1, x2, y1, y2 = plt.axis()
         # show reliability index
         if not self.invert_thk:
@@ -918,6 +920,8 @@ class RadarLine(object):
         pp.savefig(fig)
         pp.close()
         plt.close(fig)
+        # self.dist = np.max(self.dist) - self.dist
+        # self.distance = np.max(self.distance) - self.distance
 
         # AgeMisfit
         fig, plotmodel = plt.subplots()
@@ -989,7 +993,8 @@ class RadarLine(object):
         levels_labels = np.array([])
         for i in np.arange(2, 6, 1):
             levels_labels = np.concatenate((levels_labels,
-                                            np.array([10**i, '', '', '', '', '', '', '', ''])))
+                                            np.array([10**i, '', '', '', '', '', '', '', '', ''])))
+
         cb.set_ticklabels(levels_labels)
         levels_ticks = np.concatenate((np.arange(100, 1000, 100),
                                        np.arange(1000, 10000, 1000),
@@ -1236,6 +1241,7 @@ class RadarLine(object):
                 # do least square fit to get variables and hessian matrix
                 leastsq_fit1D = least_squares(self.residuals1D, self.variables1D, bounds=bounds, args=(j,), method='trf')
                 self.variables1D = leastsq_fit1D.x
+
                 self.hess1D = np.linalg.inv(np.dot(np.transpose(leastsq_fit1D.jac), leastsq_fit1D.jac))
 
                 print(self.variables1D)
@@ -1253,6 +1259,10 @@ class RadarLine(object):
 
             self.agebotmin = self.agebot-self.sigmabotage
             self.agebotmax = self.agebot+self.sigmabotage
+
+
+        np.savetxt(self.label+'jacobian.csv', leastsq_fit1D.jac, delimiter=',')
+
 
 
         # layers for showing data
